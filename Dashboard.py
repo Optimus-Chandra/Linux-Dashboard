@@ -1,4 +1,5 @@
 import time
+import os
 
 def get_kernel_version():
     with open('/proc/version', 'r') as f:
@@ -38,12 +39,17 @@ def get_memory_usage():
     return f"{used_gb:.2f} GB / {total_gb:.2f} GB"
 
 def get_cpu_usage():
+    m = 0
+    idle_time = [0] * 5
+    total_time = [0] * 5
     with open('/proc/stat' , 'r') as f :
-        line = f.readline()
-    parts = line.split()
-    data = [int(x) for x in parts[1:]]
-    idle_time = data[3] + data[4]
-    total_time = sum(data)
+        lines = [f.readline() for o in range(5)]
+        for line in lines:
+            parts = str(line).split()
+            data = [int(x) for x in parts[1:]]
+            idle_time[m] = data[3] + data[4]
+            total_time[m] = sum(data)
+            m += 1
     return total_time , idle_time
     
 def get_net_stats():
@@ -54,7 +60,23 @@ def get_net_stats():
     Up_speed = [x.split()[9].strip(':') for x in lines[2:]]
     return Interfaces , Down_speed , Up_speed
     
-
+def get_proc_counts():
+    counts = {'R': 0, 'S': 0, 'D': 0, 'Z': 0, 'T': 0, 'Total': 0}
+    pids = [pid for pid in os.listdir('/proc') if pid.isdigit()]
+    counts['Total'] = len(pids)
+    for pid in pids :
+        try:
+            with open(f'/proc/{pid}/stat' , 'r') as f :
+                content = f.read()
+            parts = content.split()
+            state = parts[2]
+            if state in counts:
+                counts[state] += 1
+        except FileNotFoundError :
+            pass
+        except IndexError :
+            pass
+    return counts
 # --- THE MAIN EXECUTION LOOP ---
 try:
     # Initialize with None to handle first iteration
@@ -65,15 +87,22 @@ try:
     Delta_Dspeed = [0.0] * len(Inter)
     Delta_Uspeed = [0.0] * len(Inter)
     kernel_info = get_kernel_version()
+    proc_types = ['Running' , 'Sleeping' , 'Disk-Sleep' , 'Zombie' , 'Stopped']
+    delta_idle_time = [0] * 5
+    delta_total_time = [0] * 5
+    cpu_percentage = [0] * 5
     
     time.sleep(1)  # Initial sleep to get meaningful first reading
     
     while True:
         # Calculate CPU usage
         curr_total_time, curr_idle_time = get_cpu_usage()
-        delta_total_time = curr_total_time - prev_total_time
-        delta_idle_time = curr_idle_time - prev_idle_time
-        cpu_percentage = ((delta_total_time - delta_idle_time) / delta_total_time) * 100 if delta_total_time > 0 else 0
+        proc_counts = get_proc_counts()
+        proc_counts_values = list(proc_counts.values())
+        for n in range(0,5):
+            delta_total_time[n] = curr_total_time[n] - prev_total_time[n]
+            delta_idle_time[n] = curr_idle_time[n] - prev_idle_time[n]
+            cpu_percentage[n] = ((delta_total_time[n] - delta_idle_time[n]) / delta_total_time[n]) * 100 if delta_total_time[n] > 0 else 0
         
         # Calculate network stats
         Inter, CurrD_speed, CurrU_speed = get_net_stats()
@@ -83,19 +112,26 @@ try:
         
         # Display
         print("\033c", end="")
-        print("=== LINUX RAW DASHBOARD v1.2 ===")
+        print("=== LINUX RAW DASHBOARD ===")
         print(f"Kernel:  {kernel_info}")
         print(f"Uptime:  {get_uptime()}")
         print(f"Load:    {get_load_avg()}")
-        print(f"Memory:  {get_memory_usage()}")
-        print(f"CPU Usage: {cpu_percentage:.2f}%")
-        print("Network Stats:")
+        print(f"Memory:  {get_memory_usage()}\n")
+        print("CPU Stats:")
+        print(f"  Avg CPU Stats: {cpu_percentage[0]:.2f}%")
+        for l in range(1,5):
+            print(f"  CPU{l} Usage: {cpu_percentage[l]:.2f}%")
+        print("\nNetwork Stats:")
         print(f"{'Interface':<15} {'Download (KB/s)':>25} {'Upload (KB/s)':>20}")
         print("-" * 75)
         for k in range(len(Inter)):
             print(f"{Inter[k]:<12} {Delta_Dspeed[k]:>20.2f} {Delta_Uspeed[k]:>20.2f}")
         print("-" * 75)
-        print("Press Ctrl+C to stop")
+        print("\nProcess Stats:")
+        print(f"    Total          :{proc_counts['Total']:>5} ")
+        for s in range(0,len(proc_counts)-1):
+            print(f"    {proc_types[s]:<15}:{proc_counts_values[s]:>5} ")
+        print("\nPress Ctrl+C to stop")
         
         # Update previous values
         prev_total_time, prev_idle_time = curr_total_time, curr_idle_time
