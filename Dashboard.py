@@ -1,5 +1,6 @@
 import time
 import os
+import sys
 
 def get_kernel_version():
     with open('/proc/version', 'r') as f:
@@ -39,17 +40,17 @@ def get_memory_usage():
     return f"{used_gb:.2f} GB / {total_gb:.2f} GB"
 
 def get_cpu_usage():
-    m = 0
-    idle_time = [0] * 5
-    total_time = [0] * 5
+    idle_time = [] 
+    total_time = [] 
     with open('/proc/stat' , 'r') as f :
         lines = [f.readline() for o in range(5)]
         for line in lines:
             parts = str(line).split()
             data = [int(x) for x in parts[1:]]
-            idle_time[m] = data[3] + data[4]
-            total_time[m] = sum(data)
-            m += 1
+            idle = data[3] + data[4]
+            total = sum(data)
+            idle_time.append(idle)
+            total_time.append(total)
     return total_time , idle_time
     
 def get_net_stats():
@@ -84,21 +85,43 @@ def get_cpu_bar(percentage):
     empty = 10 - filled
     bar = '[' + ('|' * filled) + (' ' * empty) + ']'
     return bar
- 
+
+def clear_screen():
+    """Clear screen once at the start"""
+    print("\033[2J\033[H", end="")
+    sys.stdout.flush()
+
+def move_cursor_home():
+    """Move cursor to home position without clearing"""
+    print("\033[H", end="")
+    sys.stdout.flush()
+
+def hide_cursor():
+    """Hide the cursor"""
+    print("\033[?25l", end="")
+    sys.stdout.flush()
+
+def show_cursor():
+    """Show the cursor"""
+    print("\033[?25h", end="")
+    sys.stdout.flush()
+    
 # --- THE MAIN EXECUTION LOOP ---
 try:
-    # Initialize with None to handle first iteration
-    print("\033c", end="")
-    print("Initializing")
+    # Initialize
+    hide_cursor()
+    clear_screen()
+    print("Initializing...")
+    
     prev_total_time, prev_idle_time = get_cpu_usage()
     Inter, PrevD_speed, PrevU_speed = get_net_stats()
     Delta_Dspeed = [0.0] * len(Inter)
     Delta_Uspeed = [0.0] * len(Inter)
     kernel_info = get_kernel_version()
     proc_types = ['Running' , 'Sleeping' , 'Disk-Sleep' , 'Zombie' , 'Stopped']
-    delta_idle_time = [0] * 5
-    delta_total_time = [0] * 5
-    cpu_percentage = [0] * 5
+    delta_idle_time = [0] * len(prev_total_time)
+    delta_total_time = [0] * len(prev_total_time)
+    cpu_percentage = [0] * len(prev_total_time)
     
     time.sleep(1)  # Initial sleep to get meaningful first reading
     
@@ -107,7 +130,7 @@ try:
         curr_total_time, curr_idle_time = get_cpu_usage()
         proc_counts = get_proc_counts()
         proc_counts_values = list(proc_counts.values())
-        for n in range(0,5):
+        for n in range(0,4):
             delta_total_time[n] = curr_total_time[n] - prev_total_time[n]
             delta_idle_time[n] = curr_idle_time[n] - prev_idle_time[n]
             cpu_percentage[n] = ((delta_total_time[n] - delta_idle_time[n]) / delta_total_time[n]) * 100 if delta_total_time[n] > 0 else 0
@@ -118,28 +141,36 @@ try:
             Delta_Dspeed[i] = (float(CurrD_speed[i]) - float(PrevD_speed[i])) / 1024
             Delta_Uspeed[i] = (float(CurrU_speed[i]) - float(PrevU_speed[i])) / 1024
         
-        # Display
-        print("\033c", end="")
-        print("=== LINUX RAW DASHBOARD ===")
-        print(f"Kernel:  {kernel_info}")
-        print(f"Uptime:  {get_uptime()}")
-        print(f"Load:    {get_load_avg()}")
-        print(f"Memory:  {get_memory_usage()}\n")
-        print("CPU Stats:")
-        print(f"  Avg CPU Stats: {cpu_percentage[0]:.2f}%")
-        for l in range(1,5):
-            print(f"  CPU{l} Usage:{get_cpu_bar(cpu_percentage[l])} {cpu_percentage[l]:.2f}%")
-        print("\nNetwork Stats:")
-        print(f"{'Interface':<15} {'Download (KB/s)':>25} {'Upload (KB/s)':>20}")
-        print("-" * 75)
+        # Move cursor to home and display (no screen clear!)
+        move_cursor_home()
+        
+        # Build output as a single string to minimize flicker
+        output_lines = []
+        output_lines.append("=== LINUX DASHBOARD ===")
+        output_lines.append(f"Kernel: {kernel_info}")
+        output_lines.append(f"Uptime:  {get_uptime()}")
+        output_lines.append(f"Load:    {get_load_avg()}")
+        output_lines.append(f"Memory: {get_memory_usage()}")
+        output_lines.append(f"CPU: Avg {cpu_percentage[0]:.1f}%")
+        output_lines.append(f"     CPU1 {get_cpu_bar(cpu_percentage[1])}{cpu_percentage[1]:>5.1f}%")
+        output_lines.append(f"     CPU2 {get_cpu_bar(cpu_percentage[2])}{cpu_percentage[2]:>5.1f}%")
+        output_lines.append(f"     CPU3 {get_cpu_bar(cpu_percentage[3])}{cpu_percentage[3]:>5.1f}%")
+        output_lines.append(f"     CPU4 {get_cpu_bar(cpu_percentage[4])}{cpu_percentage[4]:>5.1f}%")
+        output_lines.append(f"Network Stats:")
+        output_lines.append(f"     {'Interface':<12} {'Down(KB/s)':>12} {'Up(KB/s)':>12}")
         for k in range(len(Inter)):
-            print(f"{Inter[k]:<12} {Delta_Dspeed[k]:>20.2f} {Delta_Uspeed[k]:>20.2f}")
-        print("-" * 75)
-        print("\nProcess Stats:")
-        print(f"    Total          :{proc_counts['Total']:>5} ")
-        for s in range(0,len(proc_counts)-1):
-            print(f"    {proc_types[s]:<15}:{proc_counts_values[s]:>5} ")
-        print("\nPress Ctrl+C to stop")
+            output_lines.append(f"     {Inter[k]:<12} {Delta_Dspeed[k]:>12.2f} {Delta_Uspeed[k]:>12.2f}")
+        output_lines.append(f"Processes:")
+        output_lines.append(f"     Total {proc_counts['Total']} | Run {proc_counts_values[0]} | Sleep {proc_counts_values[1]} | Disk {proc_counts_values[2]} | Zombie {proc_counts_values[3]} | Stop {proc_counts_values[4]}")
+        output_lines.append("")
+        output_lines.append("Press Ctrl+C to stop")
+        
+        # Print all lines at once with padding to clear any leftover text
+        for line in output_lines:
+            # Pad each line to 80 characters to clear any previous longer content
+            print(f"{line:<80}")
+        
+        sys.stdout.flush()
         
         # Update previous values
         prev_total_time, prev_idle_time = curr_total_time, curr_idle_time
@@ -148,4 +179,7 @@ try:
         time.sleep(1)
         
 except KeyboardInterrupt:
+    show_cursor()
     print("\nStopping dashboard...")
+finally:
+    show_cursor()
