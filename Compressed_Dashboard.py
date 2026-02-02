@@ -84,7 +84,7 @@ def get_cpu_bar(percentage):
     empty = 10 - filled
     bar = '[' + ('|' * filled) + (' ' * empty) + ']'
     return bar
- 
+    
 # --- THE MAIN EXECUTION LOOP ---
 try:
     # Initialize with None to handle first iteration
@@ -121,24 +121,15 @@ try:
         # Display
         print("\033c", end="")
         print("=== LINUX RAW DASHBOARD ===")
-        print(f"Kernel:  {kernel_info}")
+        print(f"Kernel: {kernel_info}")
         print(f"Uptime:  {get_uptime()}")
         print(f"Load:    {get_load_avg()}")
-        print(f"Memory:  {get_memory_usage()}\n")
-        print("CPU Stats:")
-        print(f"  Avg CPU Stats: {cpu_percentage[0]:.2f}%")
-        for l in range(1,5):
-            print(f"  CPU{l} Usage:{get_cpu_bar(cpu_percentage[l])} {cpu_percentage[l]:.2f}%")
-        print("\nNetwork Stats:")
-        print(f"{'Interface':<15} {'Download (KB/s)':>25} {'Upload (KB/s)':>20}")
-        print("-" * 75)
+        print(f"Memory: {get_memory_usage()}")
+        print(f"CPU: Avg {cpu_percentage[0]:.1f}%\n     CPU1 {get_cpu_bar(cpu_percentage[1])}{cpu_percentage[1]:.1f}%\n     CPU2 {get_cpu_bar(cpu_percentage[2])}{cpu_percentage[2]:.1f}%\n     CPU3 {get_cpu_bar(cpu_percentage[3])}{cpu_percentage[3]:.1f}%\n     CPU4 {get_cpu_bar(cpu_percentage[4])}{cpu_percentage[4]:.1f}%")
+        print(f"Network Stats:\n     {'Interface':<12} {'Down(KB/s)':>12} {'Up(KB/s)':>12}")
         for k in range(len(Inter)):
-            print(f"{Inter[k]:<12} {Delta_Dspeed[k]:>20.2f} {Delta_Uspeed[k]:>20.2f}")
-        print("-" * 75)
-        print("\nProcess Stats:")
-        print(f"    Total          :{proc_counts['Total']:>5} ")
-        for s in range(0,len(proc_counts)-1):
-            print(f"    {proc_types[s]:<15}:{proc_counts_values[s]:>5} ")
+            print(f"     {Inter[k]:<12} {Delta_Dspeed[k]:>12.2f} {Delta_Uspeed[k]:>12.2f}")
+        print(f"Processes:\n     Total {proc_counts['Total']} | Run {proc_counts_values[0]} | Sleep {proc_counts_values[1]} | Disk {proc_counts_values[2]} | Zombie {proc_counts_values[3]} | Stop {proc_counts_values[4]}")
         print("\nPress Ctrl+C to stop")
         
         # Update previous values
