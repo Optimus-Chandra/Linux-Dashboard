@@ -27,17 +27,24 @@ def get_memory_usage():
     with open('/proc/meminfo', 'r') as f:
         lines = f.readlines()
     # Line 0 is usually MemTotal, Line 2 is usually MemAvailable
-    total_line_parts = lines[0].split()
-    total_kb = int(total_line_parts[1])
-    avail_line_parts = lines[2].split() 
-    avail_kb = int(avail_line_parts[1])
+    total_mem_line_parts = lines[0].split()
+    total_mem_kb = int(total_mem_line_parts[1])
+    avail_mem_line_parts = lines[2].split() 
+    avail_mem_kb = int(avail_mem_line_parts[1])
+    total_swap_line_parts = lines[14].split()
+    total_swap_kb = int(total_swap_line_parts[1])
+    free_swap_line_parts = lines[15].split()
+    free_swap_kb = int(free_swap_line_parts[1])
 
-    used_kb = total_kb - avail_kb
+    used_mem_kb = total_mem_kb - avail_mem_kb
+    used_swap_kb = total_swap_kb - free_swap_kb
 
-    total_gb = total_kb / 1024 / 1024
-    used_gb = used_kb / 1024 / 1024
+    total_mem_gb = total_mem_kb / 1024 / 1024
+    used_mem_gb = used_mem_kb / 1024 / 1024
+    total_swap_gb = total_swap_kb / 1024 / 1024
+    used_swap_gb = used_swap_kb / 1024 / 1024
 
-    return f"{used_gb:.2f} GB / {total_gb:.2f} GB"
+    return f"{used_mem_gb:.2f} GB / {total_mem_gb:.2f} GB" , f"{used_swap_gb:.2f} GB / {total_swap_gb:.2f} GB" 
 
 def get_cpu_usage():
     idle_time = [] 
@@ -88,7 +95,7 @@ def get_cpu_bar(percentage):
 
 def clear_screen():
     """Clear screen once at the start"""
-    print("\033[2J\033[H", end="")
+    print("\033c", end="")
     sys.stdout.flush()
 
 def move_cursor_home():
@@ -106,11 +113,31 @@ def show_cursor():
     print("\033[?25h", end="")
     sys.stdout.flush()
     
+def get_sys_status(RAM , Swap , Load , CPU ):
+    swap_used = float(Swap.split('/')[0].strip(" GB"))
+    ram_used = float(RAM.split('/')[0].strip(" GB"))
+    swap_total = float(Swap.split('/')[1].strip(" GB"))
+    ram_total = float(RAM.split('/')[1].strip(" GB"))
+    carry = Load.split()
+    load = float(carry[1])
+    status = "System is Heavy (High Load, Medium CPU)"
+    if ( swap_used >= swap_total * 0.5 and ram_used >= ram_total * 0.95 ) :
+        status = "Memory Leak , System is Thrashing"
+    elif ( load > 4) :
+        if ( CPU <  10.0 ):
+            status = "I/O Bottleneck"
+        if ( CPU > 90.0 ):
+            status = "System is Overloaded and Busy"
+    else :
+        status = "System is Healthy"   
+    
+    return status
+    
 # --- THE MAIN EXECUTION LOOP ---
 try:
     # Initialize
-    hide_cursor()
     clear_screen()
+    hide_cursor()
     print("Initializing...")
     
     prev_total_time, prev_idle_time = get_cpu_usage()
@@ -126,11 +153,14 @@ try:
     time.sleep(1)  # Initial sleep to get meaningful first reading
     
     while True:
+    
+        mem_info , swap_info = get_memory_usage()
+        
         # Calculate CPU usage
         curr_total_time, curr_idle_time = get_cpu_usage()
         proc_counts = get_proc_counts()
         proc_counts_values = list(proc_counts.values())
-        for n in range(0,4):
+        for n in range(0,len(prev_total_time)):
             delta_total_time[n] = curr_total_time[n] - prev_total_time[n]
             delta_idle_time[n] = curr_idle_time[n] - prev_idle_time[n]
             cpu_percentage[n] = ((delta_total_time[n] - delta_idle_time[n]) / delta_total_time[n]) * 100 if delta_total_time[n] > 0 else 0
@@ -150,18 +180,19 @@ try:
         output_lines.append(f"Kernel: {kernel_info}")
         output_lines.append(f"Uptime:  {get_uptime()}")
         output_lines.append(f"Load:    {get_load_avg()}")
-        output_lines.append(f"Memory: {get_memory_usage()}")
+        output_lines.append(f"Memory: {mem_info}")
+        output_lines.append(f"Swap Memory: {swap_info}")
         output_lines.append(f"CPU: Avg {cpu_percentage[0]:.1f}%")
-        output_lines.append(f"     CPU1 {get_cpu_bar(cpu_percentage[1])}{cpu_percentage[1]:>5.1f}%")
-        output_lines.append(f"     CPU2 {get_cpu_bar(cpu_percentage[2])}{cpu_percentage[2]:>5.1f}%")
-        output_lines.append(f"     CPU3 {get_cpu_bar(cpu_percentage[3])}{cpu_percentage[3]:>5.1f}%")
-        output_lines.append(f"     CPU4 {get_cpu_bar(cpu_percentage[4])}{cpu_percentage[4]:>5.1f}%")
+        for i in range(1, len(cpu_percentage)):
+            output_lines.append(f"     CPU{i} {get_cpu_bar(cpu_percentage[i])}{cpu_percentage[i]:>5.1f}%")
         output_lines.append(f"Network Stats:")
         output_lines.append(f"     {'Interface':<12} {'Down(KB/s)':>12} {'Up(KB/s)':>12}")
         for k in range(len(Inter)):
             output_lines.append(f"     {Inter[k]:<12} {Delta_Dspeed[k]:>12.2f} {Delta_Uspeed[k]:>12.2f}")
         output_lines.append(f"Processes:")
         output_lines.append(f"     Total {proc_counts['Total']} | Run {proc_counts_values[0]} | Sleep {proc_counts_values[1]} | Disk {proc_counts_values[2]} | Zombie {proc_counts_values[3]} | Stop {proc_counts_values[4]}")
+        output_lines.append("")
+        output_lines.append(f"{get_sys_status(mem_info , swap_info , get_load_avg() , cpu_percentage[0])}")
         output_lines.append("")
         output_lines.append("Press Ctrl+C to stop")
         
