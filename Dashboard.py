@@ -133,6 +133,28 @@ def get_sys_status(RAM , Swap , Load , CPU ):
     
     return status
     
+def process_cpu_usage():
+    pids = [ pid for pid in os.listdir('/proc') if pid.isdigit() ]
+    processes = {}
+    for pid in pids :
+        contents = []
+        try:
+            with open(f'/proc/{pid}/stat' , 'r') as f :
+                content = f.read()
+            parts = content.split()
+            id = parts[0]
+            utime = int(parts[13])
+            stime = int(parts[14])
+            ttime = utime + stime
+            contents.append(parts[1])
+            contents.append(ttime)
+            processes[id] = contents
+        except (OSError, ValueError):
+            continue
+        except IndexError :
+            pass
+    return processes
+    
 # --- THE MAIN EXECUTION LOOP ---
 try:
     # Initialize
@@ -140,6 +162,7 @@ try:
     hide_cursor()
     print("Initializing...")
     
+    clk_tck = os.sysconf('SC_CLK_TCK')
     prev_total_time, prev_idle_time = get_cpu_usage()
     Inter, PrevD_speed, PrevU_speed = get_net_stats()
     Delta_Dspeed = [0.0] * len(Inter)
@@ -149,6 +172,8 @@ try:
     delta_idle_time = [0] * len(prev_total_time)
     delta_total_time = [0] * len(prev_total_time)
     cpu_percentage = [0] * len(prev_total_time)
+    prev_process_cpu = process_cpu_usage()
+    last_time = time.time()
     
     time.sleep(1)  # Initial sleep to get meaningful first reading
     
@@ -170,18 +195,34 @@ try:
         for i in range(len(Inter)):
             Delta_Dspeed[i] = (float(CurrD_speed[i]) - float(PrevD_speed[i])) / 1024
             Delta_Uspeed[i] = (float(CurrU_speed[i]) - float(PrevU_speed[i])) / 1024
+            
+        #Calculate Per Process CPU Usage
+        current_time = time.time()
+        interval = current_time - last_time
+        delta_process_cpu = {}
+        curr_process_cpu = process_cpu_usage()
+        for pid in curr_process_cpu:
+            if pid in prev_process_cpu:
+                name = curr_process_cpu[pid][0]
+                delta = curr_process_cpu[pid][1] - prev_process_cpu[pid][1]
+                seconds_used = delta / clk_tck
+                proc_perc = (seconds_used / interval) * 100
+                delta_process_cpu[pid] = [name , proc_perc]
+                
         
+        processes_sorted = sorted(delta_process_cpu.items() , key = lambda item : item[1][1] , reverse = True)
+        top_5 = processes_sorted[:5]
+         
         # Move cursor to home and display (no screen clear!)
         move_cursor_home()
         
         # Build output as a single string to minimize flicker
         output_lines = []
-        output_lines.append("=== LINUX DASHBOARD ===")
-        output_lines.append(f"Kernel: {kernel_info}")
-        output_lines.append(f"Uptime:  {get_uptime()}")
+        output_lines.append("====================== LINUX DASHBOARD ============================")
+        output_lines.append(f"Kernel: {kernel_info}     Uptime:  {get_uptime()}")
+
         output_lines.append(f"Load:    {get_load_avg()}")
-        output_lines.append(f"Memory: {mem_info}")
-        output_lines.append(f"Swap Memory: {swap_info}")
+        output_lines.append(f"Memory: {mem_info}     Swap Memory: {swap_info}")
         output_lines.append(f"CPU: Avg {cpu_percentage[0]:.1f}%")
         for i in range(1, len(cpu_percentage)):
             output_lines.append(f"     CPU{i} {get_cpu_bar(cpu_percentage[i])}{cpu_percentage[i]:>5.1f}%")
@@ -191,10 +232,11 @@ try:
             output_lines.append(f"     {Inter[k]:<12} {Delta_Dspeed[k]:>12.2f} {Delta_Uspeed[k]:>12.2f}")
         output_lines.append(f"Processes:")
         output_lines.append(f"     Total {proc_counts['Total']} | Run {proc_counts_values[0]} | Sleep {proc_counts_values[1]} | Disk {proc_counts_values[2]} | Zombie {proc_counts_values[3]} | Stop {proc_counts_values[4]}")
-        output_lines.append("")
-        output_lines.append(f"{get_sys_status(mem_info , swap_info , get_load_avg() , cpu_percentage[0])}")
-        output_lines.append("")
-        output_lines.append("Press Ctrl+C to stop")
+        output_lines.append("Top 5 Processes with most CPU Usage :")
+        for pid , info in top_5 :
+            output_lines.append(f"PID: {pid:<6} Usage: {info[1]:>4.1f}% {info[0]}")
+        output_lines.append(f"\n{get_sys_status(mem_info , swap_info , get_load_avg() , cpu_percentage[0])}")
+        output_lines.append("\nPress Ctrl+C to stop")
         
         # Print all lines at once with padding to clear any leftover text
         for line in output_lines:
@@ -206,6 +248,8 @@ try:
         # Update previous values
         prev_total_time, prev_idle_time = curr_total_time, curr_idle_time
         PrevD_speed, PrevU_speed = CurrD_speed, CurrU_speed
+        prev_process_cpu = curr_process_cpu
+        last_time = current_time
         
         time.sleep(1)
         
